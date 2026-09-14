@@ -1,288 +1,48 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Misturador de Fontes V2</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; background: #1e1e1e; color: #fff; }
-        .painel { border: 1px solid #444; padding: 15px; margin-bottom: 20px; border-radius: 8px; background: #2a2a2a; }
-        
-        #canvas-texto { font-size: 54px; margin: 30px 0; display: flex; flex-wrap: wrap; min-height: 80px; }
-        .letra { position: relative; cursor: pointer; padding: 2px; user-select: none; transition: 0.2s; }
-        .letra:hover { background: #444; border-radius: 4px; }
-        
-        button, input { padding: 10px; margin: 5px; background: #333; color: white; border: 1px solid #555; border-radius: 4px; }
-        button:hover { background: #555; cursor: pointer; }
-        .btn-ativo { background: #0acf83; color: #000; border-color: #0acf83; }
-        
-        /* Lista de Gerenciamento */
-        .item-fonte { display: flex; justify-content: space-between; align-items: center; background: #333; padding: 10px; margin-bottom: 5px; border-radius: 4px; }
-        .item-fonte input[type="number"] { width: 60px; text-align: center; }
-        
-        /* Modal Visual de Seleção */
-        #modal-selecao {
-            display: none; position: absolute; background: #222; border: 1px solid #666;
-            padding: 10px; border-radius: 8px; z-index: 100; max-height: 300px; overflow-y: auto;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-        }
-        .opcao-modal {
-            display: flex; align-items: center; padding: 10px; cursor: pointer; border-bottom: 1px solid #444;
-        }
-        .opcao-modal:hover { background: #444; }
-        .exemplo-letra { font-size: 32px; margin-right: 15px; min-width: 40px; text-align: center; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Misturador de Fontes · LAY</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/composition.js" defer></script>
+  <script src="/static/app.js" defer></script>
 </head>
 <body>
-
-    <div class="painel">
-        <h3>1. Adicionar Fontes</h3>
-        <div>
-            <strong>Google Fonts:</strong>
-            <input type="text" id="nova-fonte-google" placeholder="Ex: Montserrat">
-            <button onclick="adicionarFonteGoogle()">Salvar</button>
-        </div>
-        <div style="margin-top: 10px;">
-            <strong>Arquivo Local (.ttf, .otf):</strong>
-            <input type="text" id="nome-fonte-local" placeholder="Nome da fonte">
-            <input type="file" id="arquivo-fonte" accept=".ttf,.otf,.woff,.woff2">
-            <button onclick="adicionarFonteLocal()">Fazer Upload</button>
-        </div>
-    </div>
-
-    <div class="painel">
-        <h3>2. Gerenciar Fontes e Prioridade (Peso)</h3>
-        <div id="lista-gerenciamento"></div>
-    </div>
-
-    <div class="painel">
-        <h3>3. Escreva sua frase</h3>
-        <input type="text" id="input-frase" placeholder="Digite algo aqui..." oninput="renderizarTexto()" style="width: 80%; font-size: 18px;">
-        
-        <div style="margin-top: 15px;">
-            <button id="btn-ciclo" class="btn-ativo" onclick="setModo('ciclo')">Modo: Clicar para Ciclo</button>
-            <button id="btn-manual" onclick="setModo('manual')">Modo: Lista Visual Manual</button>
-            <label style="margin-left: 15px;">
-                <input type="checkbox" id="check-aleatorio-digitar" style="transform: scale(1.5); margin-right: 10px;">
-                Aleatório ao digitar
-            </label>
-        </div>
-        <div style="margin-top: 10px;">
-            <button onclick="aleatorizarTodas()">🎲 Aleatorizar Todas as Letras (Baseado no Peso)</button>
-        </div>
-
-        <div id="canvas-texto"></div>
-    </div>
-
-    <button style="background: #0acf83; color: cr; width: 100%; font-size: 18px;" onclick="exportarParaFigma()">Exportar SVG para Figma</button>
-
-    <!-- Modal para seleção manual -->
-    <div id="modal-selecao"></div>
-
-    <script>
-        let fontesSalvas = [];
-        let estadoLetras = []; // Guarda { char, fonte } de cada letra digitada
-        let modoAtual = 'ciclo';
-        let spanSendoEditado = null; // Para o modal
-
-        async function carregarFontes() {
-            const res = await fetch('/api/fontes');
-            fontesSalvas = await res.json();
-            
-            // Injeta CSS dinâmico para arquivos e Google Fonts
-            let styleTags = '';
-            fontesSalvas.forEach(f => {
-                if (f.tipo === 'google') {
-                    const url = `https://fonts.googleapis.com/css2?family=${f.nome.replace(/ /g, '+')}&display=swap`;
-                    if(!document.querySelector(`link[href="${url}"]`)) {
-                        document.head.insertAdjacentHTML('beforeend', `<link rel="stylesheet" href="${url}">`);
-                    }
-                } else if (f.tipo === 'local') {
-                    styleTags += `@font-face { font-family: "${f.nome}"; src: url("/static/fonts/${f.arquivo}"); }\n`;
-                }
-            });
-            let styleEl = document.getElementById('estilos-dinamicos');
-            if(!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'estilos-dinamicos'; document.head.appendChild(styleEl); }
-            styleEl.innerHTML = styleTags;
-
-            renderizarListaGerenciamento();
-        }
-
-        function renderizarListaGerenciamento() {
-            const container = document.getElementById('lista-gerenciamento');
-            container.innerHTML = fontesSalvas.map(f => `
-                <div class="item-fonte">
-                    <span><strong>${f.nome}</strong> (${f.tipo})</span>
-                    <div>
-                        <label>Peso:</label>
-                        <input type="number" value="${f.peso}" min="0" onchange="atualizarPeso(${f.id}, this.value)">
-                        <button onclick="deletarFonte(${f.id})" style="background: #cc0000;">Apagar</button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        async function adicionarFonteGoogle() {
-            const nome = document.getElementById('nova-fonte-google').value;
-            await fetch('/api/fontes', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({nome}) });
-            document.getElementById('nova-fonte-google').value = '';
-            carregarFontes();
-        }
-
-        async function adicionarFonteLocal() {
-            const nome = document.getElementById('nome-fonte-local').value;
-            const arquivo = document.getElementById('arquivo-fonte').files[0];
-            if(!nome || !arquivo) return alert("Preencha o nome e selecione o arquivo.");
-
-            const formData = new FormData();
-            formData.append('nome', nome);
-            formData.append('arquivo', arquivo);
-
-            await fetch('/api/fontes', { method: 'POST', body: formData });
-            document.getElementById('nome-fonte-local').value = '';
-            document.getElementById('arquivo-fonte').value = '';
-            carregarFontes();
-        }
-
-        async function deletarFonte(id) {
-            await fetch(`/api/fontes/${id}`, { method: 'DELETE' });
-            carregarFontes();
-        }
-
-        async function atualizarPeso(id, peso) {
-            await fetch(`/api/fontes/${id}/peso`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({peso: parseInt(peso)}) });
-            carregarFontes();
-        }
-
-        function setModo(modo) {
-            modoAtual = modo;
-            document.getElementById('btn-ciclo').className = modo === 'ciclo' ? 'btn-ativo' : '';
-            document.getElementById('btn-manual').className = modo === 'manual' ? 'btn-ativo' : '';
-        }
-
-        function escolherFonteAleatoriaPonderada() {
-            if(fontesSalvas.length === 0) return 'sans-serif';
-            let totalPeso = fontesSalvas.reduce((sum, f) => sum + f.peso, 0);
-            if(totalPeso === 0) return fontesSalvas[0].nome; // Fallback se tudo for peso 0
-            
-            let aleatorio = Math.random() * totalPeso;
-            for (let f of fontesSalvas) {
-                if (aleatorio < f.peso) return f.nome;
-                aleatorio -= f.peso;
-            }
-            return fontesSalvas[fontesSalvas.length - 1].nome;
-        }
-
-        function renderizarTexto() {
-            const texto = document.getElementById('input-frase').value;
-            const container = document.getElementById('canvas-texto');
-            const aleatorioAtivo = document.getElementById('check-aleatorio-digitar').checked;
-
-            let novoEstado = [];
-            for(let i = 0; i < texto.length; i++) {
-                let char = texto[i];
-                // Se a letra já existia na mesma posição, mantém a fonte. Se é nova, decide a fonte.
-                if (i < estadoLetras.length && estadoLetras[i].char === char) {
-                    novoEstado.push(estadoLetras[i]);
-                } else {
-                    let fonteEscolhida = aleatorioAtivo ? escolherFonteAleatoriaPonderada() : (fontesSalvas[0] ? fontesSalvas[0].nome : 'sans-serif');
-                    novoEstado.push({ char: char, fonte: fonteEscolhida });
-                }
-            }
-            estadoLetras = novoEstado;
-
-            container.innerHTML = '';
-            estadoLetras.forEach((item, index) => {
-                if (item.char === ' ') {
-                    container.insertAdjacentHTML('beforeend', '<span>&nbsp;</span>');
-                    return;
-                }
-                const span = document.createElement('span');
-                span.innerText = item.char;
-                span.className = 'letra';
-                span.style.fontFamily = `"${item.fonte}"`;
-                span.title = item.fonte; // Tooltip nativa do navegador
-                span.setAttribute('data-index', index);
-                
-                span.onclick = (e) => interagirComLetra(e, span, index);
-                container.appendChild(span);
-            });
-        }
-
-        function interagirComLetra(e, span, index) {
-            const fonteAtual = estadoLetras[index].fonte;
-            let iFonteAtual = fontesSalvas.findIndex(f => f.nome === fonteAtual);
-            
-            if (modoAtual === 'ciclo') {
-                let proximaFonte = fontesSalvas[(iFonteAtual + 1) % fontesSalvas.length].nome;
-                aplicarFonteIndex(index, proximaFonte);
-            } else if (modoAtual === 'manual') {
-                abrirModalSelecao(e, span, index);
-            }
-        }
-
-        function abrirModalSelecao(evento, span, indexLetra) {
-            spanSendoEditado = indexLetra;
-            const modal = document.getElementById('modal-selecao');
-            const char = estadoLetras[indexLetra].char;
-            
-            modal.innerHTML = fontesSalvas.map(f => `
-                <div class="opcao-modal" onclick="aplicarFonteIndex(${indexLetra}, '${f.nome}'); fecharModal()">
-                    <span class="exemplo-letra" style="font-family: '${f.nome}'">${char}</span>
-                    <span>${f.nome}</span>
-                </div>
-            `).join('');
-
-            modal.style.display = 'block';
-            modal.style.left = evento.pageX + 'px';
-            modal.style.top = (evento.pageY + 20) + 'px';
-        }
-
-        function fecharModal() {
-            document.getElementById('modal-selecao').style.display = 'none';
-        }
-        
-        // Fecha o modal se clicar fora
-        document.addEventListener('click', function(event) {
-            const modal = document.getElementById('modal-selecao');
-            if (modal.style.display === 'block' && !event.target.closest('#modal-selecao') && !event.target.closest('.letra')) {
-                fecharModal();
-            }
-        });
-
-        function aplicarFonteIndex(index, fonteNome) {
-            estadoLetras[index].fonte = fonteNome;
-            renderizarTexto(); // Atualiza a tela
-        }
-
-        function aleatorizarTodas() {
-            estadoLetras.forEach(item => {
-                if (item.char !== ' ') item.fonte = escolherFonteAleatoriaPonderada();
-            });
-            renderizarTexto();
-        }
-
-        function exportarParaFigma() {
-            let tspanElements = '';
-            estadoLetras.forEach(item => {
-                if(item.char === ' ') tspanElements += `<tspan> </tspan>`;
-                else tspanElements += `<tspan font-family="${item.fonte}">${item.char}</tspan>`;
-            });
-
-            const svgData = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="200">
-                <text x="10" y="80" font-size="54">${tspanElements}</text>
-            </svg>`;
-
-            const blob = new Blob([svgData], { type: "image/svg+xml" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = "texto_misturado.svg";
-            a.click();
-        }
-
-        carregarFontes();
-    </script>
+  <main>
+    <header><span class="marca">LAY / FERRAMENTAS</span><h1>Misturador de fontes</h1><p>Combine letras. Ajuste os detalhes. Exporte cada caractere em curvas.</p></header>
+    <section class="painel">
+      <h2>1. Adicionar fontes</h2>
+      <form id="upload-form"><label>Arquivo de fonte <input type="file" id="arquivo-fonte" accept=".ttf,.otf,.woff,.woff2" required></label><button>Adicionar arquivo</button></form>
+      <p class="ajuda">O nome e as variações são lidos do arquivo. TTF, OTF, WOFF ou WOFF2 · até 20 MB.</p>
+      <details><summary>Importar do Google Fonts</summary><form id="google-form"><label>Família no Google Fonts <input id="nova-fonte-google" placeholder="Ex.: Montserrat" required></label><button>Baixar fonte</button></form><p class="ajuda">Importa o estilo padrão. Para outros estilos ou eixos variáveis, adicione o arquivo correspondente.</p></details>
+    </section>
+    <section class="painel">
+      <h2>2. Composição</h2>
+      <label for="input-frase">Seu texto</label><textarea id="input-frase" rows="3" maxlength="1000" placeholder="Digite algo aqui…"></textarea>
+      <div class="controles" id="controles-layout">
+        <label>Tamanho (px)<input type="number" id="tamanho" value="54" min="8" max="300"></label>
+        <label>Espaçamento (px)<input type="number" id="espacamento" value="0" min="-100" max="200" step="0.5"></label>
+        <label>Entrelinha<input type="number" id="entrelinha" value="1.4" min="0.5" max="5" step="0.1"></label>
+        <label>Largura (px)<input type="number" id="largura" value="1000" min="100" max="5000"></label>
+        <label>Margem (px)<input type="number" id="margem" value="24" min="0" max="200"></label>
+        <label>Alinhamento<select id="alinhamento"><option value="left">Esquerda</option><option value="center">Centro</option><option value="right">Direita</option></select></label>
+        <label>Cor<input type="color" id="cor" value="#ffffff"></label>
+        <label class="check"><input type="checkbox" id="quebrar" checked>Quebrar linhas na largura</label>
+      </div>
+      <div class="controles">
+        <label class="check"><input type="checkbox" id="check-aleatorio-digitar">Aleatório ao digitar</label>
+        <label class="check"><input type="checkbox" id="evitar-repeticao">Evitar fontes consecutivas iguais</label>
+        <button id="aleatorizar">Aleatorizar letras</button>
+        <label>Ao clicar na letra<select id="modo"><option value="ciclo">Trocar para próxima fonte</option><option value="manual">Escolher manualmente</option></select></label>
+      </div>
+      <div id="status" role="status" aria-live="polite"></div>
+      <div id="canvas-texto" aria-label="Preview vetorial"></div>
+      <div id="editor-letra" hidden><strong id="letra-selecionada"></strong><label>Fonte<select id="fonte-letra"></select></label><label class="check"><input type="checkbox" id="travar-letra">Manter fonte ao aleatorizar</label><div id="opcoes-letra" aria-label="Escolha visual de fonte"></div></div>
+      <p class="ajuda">Clique em uma letra para trocar sua fonte. Espaços e quebras de linha são preservados. O fundo escuro não faz parte do SVG.</p>
+      <button id="exportar" class="primario" disabled>Exportar SVG em curvas</button>
+    </section>
+    <section class="painel"><h2>3. Fontes e amostras</h2><p class="ajuda">A amostra abaixo de cada nome mostra seu texto somente naquela fonte. Prioridade 0 exclui a fonte do sorteio. Tamanho relativo e variações também afetam a composição.</p><div id="lista-gerenciamento"></div></section>
+  </main>
 </body>
 </html>
-
